@@ -35,11 +35,36 @@ create table if not exists public.tarde_deportiva_matches (
     start_time time not null,
     team_a text not null check (length(btrim(team_a)) > 0),
     team_b text not null check (length(btrim(team_b)) > 0),
-    score_a integer not null check (score_a >= 0),
-    score_b integer not null check (score_b >= 0),
+    score_a integer check (score_a >= 0),
+    score_b integer check (score_b >= 0),
     notes text,
-    created_at timestamptz not null default now()
+    created_at timestamptz not null default now(),
+    constraint tarde_deportiva_match_scores_paired check (
+        (score_a is null and score_b is null)
+        or (score_a is not null and score_b is not null)
+    )
 );
+
+alter table public.tarde_deportiva_matches
+    alter column score_a drop not null,
+    alter column score_b drop not null;
+
+do $$
+begin
+    if not exists (
+        select 1
+        from pg_constraint
+        where conrelid = 'public.tarde_deportiva_matches'::regclass
+          and conname = 'tarde_deportiva_match_scores_paired'
+    ) then
+        alter table public.tarde_deportiva_matches
+            add constraint tarde_deportiva_match_scores_paired check (
+                (score_a is null and score_b is null)
+                or (score_a is not null and score_b is not null)
+            );
+    end if;
+end
+$$;
 
 create index if not exists teacher_calendar_events_date_time_idx
     on public.teacher_calendar_events (event_date, start_time);

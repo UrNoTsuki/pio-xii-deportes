@@ -335,8 +335,6 @@ def crear_partido_tarde_deportiva(
     start_time: time,
     team_a: str,
     team_b: str,
-    score_a: int,
-    score_b: int,
     notes: str,
 ) -> bool:
     if match_date.weekday() != 4:
@@ -353,8 +351,6 @@ def crear_partido_tarde_deportiva(
                 "start_time": start_time.isoformat(),
                 "team_a": team_a.strip(),
                 "team_b": team_b.strip(),
-                "score_a": score_a,
-                "score_b": score_b,
                 "notes": notes.strip() or None,
             }
         ).execute()
@@ -362,6 +358,27 @@ def crear_partido_tarde_deportiva(
         reportar_error("guardar el partido", error)
         return False
     st.success("Partido agregado a Tarde Deportiva.")
+    return True
+
+
+def guardar_resultado_tarde_deportiva(
+    cliente: Client, match_id: str, score_a: int, score_b: int
+) -> bool:
+    try:
+        respuesta = (
+            cliente.table("tarde_deportiva_matches")
+            .update({"score_a": score_a, "score_b": score_b})
+            .eq("id", match_id)
+            .select("id")
+            .execute()
+        )
+    except (APIError, httpx.HTTPError) as error:
+        reportar_error("guardar el resultado", error)
+        return False
+    if not respuesta.data:
+        st.error("No se guardó el resultado.")
+        return False
+    st.success("Resultado guardado.")
     return True
 
 
@@ -928,8 +945,8 @@ def mostrar_tarde_deportiva(
 ) -> None:
     st.title("Tarde Deportiva")
     st.markdown(
-        '<p class="page-intro">Organiza los partidos del viernes, registra los '
-        "marcadores y consulta el historial de semanas anteriores.</p>",
+        '<p class="page-intro">Programa los fixtures del viernes antes de los '
+        "partidos, registra los resultados después y consulta el historial.</p>",
         unsafe_allow_html=True,
     )
 
@@ -947,12 +964,18 @@ def mostrar_tarde_deportiva(
         for partido in partidos
         if str(partido.get("match_date", "")) == fecha_partidos.isoformat()
     ]
+    partidos_jugados = [
+        partido
+        for partido in partidos_semana
+        if partido.get("score_a") is not None
+        and partido.get("score_b") is not None
+    ]
     empates = sum(
-        partido["score_a"] == partido["score_b"] for partido in partidos_semana
+        partido["score_a"] == partido["score_b"] for partido in partidos_jugados
     )
     deportes = {str(partido["sport"]) for partido in partidos_semana}
     equipos: dict[str, dict[str, int]] = {}
-    for partido in partidos_semana:
+    for partido in partidos_jugados:
         equipo_a = str(partido["team_a"])
         equipo_b = str(partido["team_b"])
         marcador_a = int(partido["score_a"])
@@ -978,11 +1001,14 @@ def mostrar_tarde_deportiva(
             equipos[equipo_a]["E"] += 1
             equipos[equipo_b]["E"] += 1
 
-    metricas = st.columns(4)
+    metricas = st.columns(5)
     metricas[0].metric("Partidos", len(partidos_semana))
     metricas[1].metric("Deportes", len(deportes))
-    metricas[2].metric("Partidos con ganador", len(partidos_semana) - empates)
-    metricas[3].metric("Empates", empates)
+    metricas[2].metric(
+        "Pendientes", len(partidos_semana) - len(partidos_jugados)
+    )
+    metricas[3].metric("Partidos con ganador", len(partidos_jugados) - empates)
+    metricas[4].metric("Empates", empates)
 
     if partidos_semana:
         filas = [
@@ -991,7 +1017,10 @@ def mostrar_tarde_deportiva(
                 "Deporte": partido.get("sport", ""),
                 "Equipo A": partido.get("team_a", ""),
                 "Resultado": (
-                    f"{partido.get('score_a')} – {partido.get('score_b')}"
+                    f"{partido['score_a']} – {partido['score_b']}"
+                    if partido.get("score_a") is not None
+                    and partido.get("score_b") is not None
+                    else "Pendiente"
                 ),
                 "Equipo B": partido.get("team_b", ""),
                 "Notas": partido.get("notes") or "",
@@ -1006,10 +1035,10 @@ def mostrar_tarde_deportiva(
         ]
         st.dataframe(tabla_equipos, use_container_width=True, hide_index=True)
     else:
-        st.info("Todavía no hay partidos registrados para este viernes.")
+        st.info("Todavía no hay fixtures registrados para este viernes.")
 
-    with st.expander("Agregar un partido", expanded=not partidos_semana):
-        with st.form("formulario_partido_tarde_deportiva"):
+    with st.expander("Agregar un fixture", expanded=not partidos_semana):
+        with st.form("formulario_fixture_tarde_deportiva"):
             deporte_col, hora_col = st.columns(2)
             with deporte_col:
                 deporte = st.text_input(
@@ -1019,22 +1048,16 @@ def mostrar_tarde_deportiva(
                 hora_partido = st.time_input(
                     "Hora del partido", value=time(13, 0)
                 )
-            equipo_col, resultado_col = st.columns([2, 1])
+            equipo_col, equipo_b_col = st.columns(2)
             with equipo_col:
                 equipo_a = st.text_input("Equipo A")
+            with equipo_b_col:
                 equipo_b = st.text_input("Equipo B")
-            with resultado_col:
-                marcador_a = st.number_input(
-                    "Puntos equipo A", min_value=0, step=1
-                )
-                marcador_b = st.number_input(
-                    "Puntos equipo B", min_value=0, step=1
-                )
             notas = st.text_input("Notas (opcional)")
-            guardar_partido = st.form_submit_button(
-                "Guardar partido y resultado", use_container_width=True
+            guardar_fixture = st.form_submit_button(
+                "Guardar fixture", use_container_width=True
             )
-        if guardar_partido:
+        if guardar_fixture:
             if crear_partido_tarde_deportiva(
                 cliente,
                 fecha_partidos,
@@ -1042,11 +1065,51 @@ def mostrar_tarde_deportiva(
                 hora_partido,
                 equipo_a,
                 equipo_b,
-                int(marcador_a),
-                int(marcador_b),
                 notas,
             ):
                 st.rerun()
+
+    if partidos_semana:
+        partidos_por_etiqueta = {
+            (
+                f"{partido.get('start_time', '')[:5]} · "
+                f"{partido.get('sport')} · {partido.get('team_a')} vs "
+                f"{partido.get('team_b')} · {str(partido.get('id', ''))[:8]}"
+            ): partido
+            for partido in partidos_semana
+        }
+        with st.expander("Agregar o actualizar resultados"):
+            etiqueta_resultado = st.selectbox(
+                "Fixture", list(partidos_por_etiqueta), key="fixture_resultado"
+            )
+            partido_resultado = partidos_por_etiqueta[etiqueta_resultado]
+            id_resultado = str(partido_resultado["id"])
+            marcador_col_a, marcador_col_b = st.columns(2)
+            with marcador_col_a:
+                marcador_a = st.number_input(
+                    f"Puntos {partido_resultado['team_a']}",
+                    min_value=0,
+                    step=1,
+                    value=int(partido_resultado["score_a"] or 0),
+                    key=f"resultado_{id_resultado}_a",
+                )
+            with marcador_col_b:
+                marcador_b = st.number_input(
+                    f"Puntos {partido_resultado['team_b']}",
+                    min_value=0,
+                    step=1,
+                    value=int(partido_resultado["score_b"] or 0),
+                    key=f"resultado_{id_resultado}_b",
+                )
+            if st.button(
+                "Guardar resultado",
+                key=f"guardar_resultado_{id_resultado}",
+                use_container_width=True,
+            ):
+                if guardar_resultado_tarde_deportiva(
+                    cliente, id_resultado, int(marcador_a), int(marcador_b)
+                ):
+                    st.rerun()
 
     if partidos:
         st.markdown("### Historial de Tardes Deportivas")
@@ -1072,14 +1135,6 @@ def mostrar_tarde_deportiva(
         st.dataframe(historial, use_container_width=True, hide_index=True)
 
         if partidos_semana:
-            partidos_por_etiqueta = {
-                (
-                    f"{partido.get('start_time', '')[:5]} · "
-                    f"{partido.get('sport')} · {partido.get('team_a')} vs "
-                    f"{partido.get('team_b')} · {str(partido.get('id', ''))[:8]}"
-                ): partido
-                for partido in partidos_semana
-            }
             with st.form("formulario_eliminar_partido"):
                 etiqueta = st.selectbox(
                     "Partido que quieres eliminar",

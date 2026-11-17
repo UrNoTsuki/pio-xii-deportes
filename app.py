@@ -945,7 +945,7 @@ def mostrar_tarde_deportiva(
 ) -> None:
     st.title("Tarde Deportiva")
     st.markdown(
-        '<p class="page-intro">Programa los fixtures del viernes antes de los '
+        '<p class="page-intro">Programa los enfrentamientos del viernes antes de los '
         "partidos, registra los resultados después y consulta el historial.</p>",
         unsafe_allow_html=True,
     )
@@ -1035,10 +1035,10 @@ def mostrar_tarde_deportiva(
         ]
         st.dataframe(tabla_equipos, use_container_width=True, hide_index=True)
     else:
-        st.info("Todavía no hay fixtures registrados para este viernes.")
+        st.info("Todavía no hay enfrentamientos registrados para este viernes.")
 
-    with st.expander("Agregar un fixture", expanded=not partidos_semana):
-        with st.form("formulario_fixture_tarde_deportiva"):
+    with st.expander("Agregar un enfrentamiento", expanded=not partidos_semana):
+        with st.form("formulario_enfrentamiento_tarde_deportiva"):
             deporte_col, hora_col = st.columns(2)
             with deporte_col:
                 deporte = st.text_input(
@@ -1054,10 +1054,10 @@ def mostrar_tarde_deportiva(
             with equipo_b_col:
                 equipo_b = st.text_input("Equipo B")
             notas = st.text_input("Notas (opcional)")
-            guardar_fixture = st.form_submit_button(
-                "Guardar fixture", use_container_width=True
+            guardar_enfrentamiento = st.form_submit_button(
+                "Guardar enfrentamiento", use_container_width=True
             )
-        if guardar_fixture:
+        if guardar_enfrentamiento:
             if crear_partido_tarde_deportiva(
                 cliente,
                 fecha_partidos,
@@ -1080,7 +1080,7 @@ def mostrar_tarde_deportiva(
         }
         with st.expander("Agregar o actualizar resultados"):
             etiqueta_resultado = st.selectbox(
-                "Fixture", list(partidos_por_etiqueta), key="fixture_resultado"
+                "Enfrentamiento", list(partidos_por_etiqueta), key="enfrentamiento_resultado"
             )
             partido_resultado = partidos_por_etiqueta[etiqueta_resultado]
             id_resultado = str(partido_resultado["id"])
@@ -1137,14 +1137,14 @@ def mostrar_tarde_deportiva(
         if partidos_semana:
             with st.form("formulario_eliminar_partido"):
                 etiqueta = st.selectbox(
-                    "Partido que quieres eliminar",
+                    "Enfrentamiento que quieres eliminar",
                     list(partidos_por_etiqueta),
                 )
                 confirmar = st.checkbox(
-                    "Confirmo que quiero eliminar este partido del historial."
+                    "Confirmo que quiero eliminar este enfrentamiento del historial."
                 )
                 eliminar = st.form_submit_button(
-                    "Eliminar partido", use_container_width=True
+                    "Eliminar enfrentamiento", use_container_width=True
                 )
             if eliminar:
                 if not confirmar:

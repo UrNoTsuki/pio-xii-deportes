@@ -274,10 +274,14 @@ def mostrar_login(cliente: Client) -> None:
             if st.button("Continuar como invitado", use_container_width=True):
                 try:
                     respuesta = cliente.auth.sign_in_anonymously()
-                except AuthError:
+                except AuthError as error:
+                    detalle = error.message
+                    if error.code:
+                        detalle += f" (código: {error.code})"
                     st.error(
                         "No se pudo entrar como invitado. El acceso de invitados "
-                        "puede estar desactivado en Supabase."
+                        "puede estar desactivado en Supabase. "
+                        f"Detalle de Supabase: {detalle}"
                     )
                 except httpx.HTTPError:
                     st.error("No se pudo conectar con el servicio de autenticación.")

@@ -2,3 +2,13 @@
 .venv/
 __pycache__/
 *.py[cod]
+/app/.gradle/
+/app/build/
+/app/app/build/
+/app/android.keystore
+/app/keystore.properties
+/app/supabase.properties
+/app/local.properties
+/app/*.apk
+/app/*.aab
+/app/*.idsig

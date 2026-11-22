@@ -13,6 +13,7 @@ from postgrest.exceptions import APIError
 from streamlit.errors import StreamlitSecretNotFoundError
 from supabase import Client, create_client
 from supabase_auth.errors import AuthError
+from supabase_auth.types import AuthResponse
 
 
 NOMBRES_COLUMNAS = ["id", "codigo", "disponible", "prestado_a", "fecha_prestamo"]
@@ -129,6 +130,15 @@ def aplicar_token_usuario(cliente: Client, access_token: str) -> None:
     cliente.postgrest.auth(access_token)
 
 
+def guardar_sesion_usuario(respuesta: AuthResponse) -> bool:
+    if not respuesta.session:
+        return False
+    st.session_state["supabase_access_token"] = respuesta.session.access_token
+    st.session_state["supabase_refresh_token"] = respuesta.session.refresh_token
+    st.session_state["supabase_user_id"] = str(respuesta.session.user.id)
+    return True
+
+
 def autenticar_sesion(cliente: Client) -> bool:
     access_token = st.session_state.get("supabase_access_token")
     refresh_token = st.session_state.get("supabase_refresh_token")
@@ -180,38 +190,102 @@ def mostrar_login(cliente: Client) -> None:
         if aviso_cierre:
             st.warning(aviso_cierre)
 
-        with st.form("formulario_login", clear_on_submit=True):
-            correo = st.text_input(
-                "Correo electrónico", placeholder="nombre@colegio.edu"
-            )
-            contrasena = st.text_input("Contraseña", type="password")
-            enviar = st.form_submit_button("Entrar", use_container_width=True)
-
-        if enviar:
-            try:
-                respuesta = cliente.auth.sign_in_with_password(
-                    {"email": correo.strip(), "password": contrasena}
+        iniciar_tab, crear_tab, invitado_tab = st.tabs(
+            ["Iniciar sesión", "Crear cuenta", "Entrar como invitado"]
+        )
+        with iniciar_tab:
+            with st.form("formulario_login", clear_on_submit=True):
+                correo = st.text_input(
+                    "Correo electrónico", placeholder="nombre@colegio.edu"
                 )
-            except AuthError:
-                st.error("No se pudo iniciar sesión. Revisa el correo y la contraseña.")
-            except httpx.HTTPError:
-                st.error("No se pudo conectar con el servicio de autenticación.")
-            else:
-                if not respuesta.session:
+                contrasena = st.text_input("Contraseña", type="password")
+                enviar = st.form_submit_button("Entrar", use_container_width=True)
+
+            if enviar:
+                try:
+                    respuesta = cliente.auth.sign_in_with_password(
+                        {"email": correo.strip(), "password": contrasena}
+                    )
+                except AuthError:
                     st.error(
                         "No se pudo iniciar sesión. Revisa el correo y la contraseña."
                     )
+                except httpx.HTTPError:
+                    st.error("No se pudo conectar con el servicio de autenticación.")
                 else:
-                    st.session_state["supabase_access_token"] = (
-                        respuesta.session.access_token
+                    if guardar_sesion_usuario(respuesta):
+                        st.rerun()
+                    else:
+                        st.error(
+                            "No se pudo iniciar sesión. Revisa el correo y la contraseña."
+                        )
+
+        with crear_tab:
+            with st.form("formulario_registro", clear_on_submit=True):
+                correo_nuevo = st.text_input(
+                    "Correo electrónico", placeholder="nombre@colegio.edu"
+                )
+                contrasena_nueva = st.text_input(
+                    "Contraseña", type="password", key="registro_contrasena"
+                )
+                confirmar_contrasena = st.text_input(
+                    "Confirmar contraseña",
+                    type="password",
+                    key="registro_confirmar_contrasena",
+                )
+                registrar = st.form_submit_button(
+                    "Crear cuenta", use_container_width=True
+                )
+
+            if registrar:
+                if not correo_nuevo.strip() or not contrasena_nueva:
+                    st.error("Escribe tu correo y una contraseña.")
+                elif contrasena_nueva != confirmar_contrasena:
+                    st.error("Las contraseñas no coinciden.")
+                else:
+                    try:
+                        respuesta = cliente.auth.sign_up(
+                            {
+                                "email": correo_nuevo.strip(),
+                                "password": contrasena_nueva,
+                            }
+                        )
+                    except AuthError:
+                        st.error(
+                            "No se pudo crear la cuenta. Revisa el correo y "
+                            "los requisitos de contraseña."
+                        )
+                    except httpx.HTTPError:
+                        st.error("No se pudo conectar con el servicio de autenticación.")
+                    else:
+                        if guardar_sesion_usuario(respuesta):
+                            st.rerun()
+                        else:
+                            st.success(
+                                "Cuenta creada. Revisa tu correo para confirmar "
+                                "la cuenta y luego inicia sesión."
+                            )
+
+        with invitado_tab:
+            st.warning(
+                "La cuenta de invitado puede modificar el inventario compartido, "
+                "los préstamos, el calendario y los resultados deportivos."
+            )
+            if st.button("Continuar como invitado", use_container_width=True):
+                try:
+                    respuesta = cliente.auth.sign_in_anonymously()
+                except AuthError:
+                    st.error(
+                        "No se pudo entrar como invitado. El acceso de invitados "
+                        "puede estar desactivado en Supabase."
                     )
-                    st.session_state["supabase_refresh_token"] = (
-                        respuesta.session.refresh_token
-                    )
-                    st.session_state["supabase_user_id"] = str(
-                        respuesta.session.user.id
-                    )
-                    st.rerun()
+                except httpx.HTTPError:
+                    st.error("No se pudo conectar con el servicio de autenticación.")
+                else:
+                    if guardar_sesion_usuario(respuesta):
+                        st.rerun()
+                    else:
+                        st.error("Supabase no creó una sesión de invitado.")
 
 
 def reportar_error(accion: str, error: Exception) -> None:

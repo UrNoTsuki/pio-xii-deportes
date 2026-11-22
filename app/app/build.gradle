@@ -1,0 +1,132 @@
+plugins {
+    id 'com.android.application'
+}
+
+def supabaseProperties = new Properties()
+def supabasePropertiesFile = rootProject.file('supabase.properties')
+if (supabasePropertiesFile.exists()) {
+    supabasePropertiesFile.withInputStream { supabaseProperties.load(it) }
+}
+
+def supabaseUrl = supabaseProperties.getProperty('url')
+    ?: supabaseProperties.getProperty('SUPABASE_URL')
+def supabaseAnonKey = supabaseProperties.getProperty('anonKey')
+    ?: supabaseProperties.getProperty('SUPABASE_PUBLISHABLE_KEY')
+    ?: supabaseProperties.getProperty('SUPABASE_ANON_KEY')
+
+def streamlitSecrets = rootProject.file('../.streamlit/secrets.toml')
+if (streamlitSecrets.exists()) {
+    def secretsText = streamlitSecrets.getText('UTF-8')
+    if (!supabaseUrl) {
+        def matcher = secretsText =~ /(?m)^\s*SUPABASE_URL\s*=\s*["']([^"']+)["']\s*$/
+        if (matcher.find()) {
+            supabaseUrl = matcher.group(1)
+        }
+    }
+    if (!supabaseAnonKey) {
+        def matcher = secretsText =~ /(?m)^\s*SUPABASE_(?:PUBLISHABLE_KEY|ANON_KEY)\s*=\s*["']([^"']+)["']\s*$/
+        if (matcher.find()) {
+            supabaseAnonKey = matcher.group(1)
+        }
+    }
+}
+
+def isPublicSupabaseKey = supabaseAnonKey?.startsWith('sb_publishable_')
+if (supabaseAnonKey && !isPublicSupabaseKey) {
+    def parts = supabaseAnonKey.split('\\.')
+    if (parts.length == 3) {
+        try {
+            def claims = new groovy.json.JsonSlurper().parseText(
+                new String(
+                    java.util.Base64.getUrlDecoder().decode(parts[1]),
+                    'UTF-8'
+                )
+            )
+            isPublicSupabaseKey = claims.role == 'anon'
+        } catch (IllegalArgumentException ignored) {
+            isPublicSupabaseKey = false
+        } catch (groovy.json.JsonException ignored) {
+            isPublicSupabaseKey = false
+        }
+    }
+}
+if (supabaseAnonKey && !isPublicSupabaseKey) {
+    throw new GradleException(
+        'The Android app must use a Supabase publishable/anon key, never a secret key.'
+    )
+}
+if (!supabaseUrl || !supabaseAnonKey) {
+    throw new GradleException(
+        'Supabase configuration is missing. Add url and anonKey to the ignored ' +
+        'app/supabase.properties file. Use only a publishable/anon key.'
+    )
+}
+
+def signingProperties = new Properties()
+def signingPropertiesFile = rootProject.file('keystore.properties')
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
+def releaseStoreFile = signingProperties.getProperty('storeFile', 'android.keystore')
+def releaseStorePassword = signingProperties.getProperty('storePassword')
+def releaseKeyAlias = signingProperties.getProperty('keyAlias', 'android')
+def releaseKeyPassword = signingProperties.getProperty('keyPassword')
+def hasReleaseSigningCredentials = releaseStorePassword && releaseKeyPassword
+
+android {
+    compileSdkVersion 36
+    namespace 'com.UrNoTsuki.PIOXII'
+    buildFeatures {
+        buildConfig true
+    }
+
+    defaultConfig {
+        applicationId 'com.UrNoTsuki.PIOXII'
+        minSdkVersion 24
+        targetSdkVersion 36
+        versionCode 6
+        versionName '1.5'
+
+        resValue 'string', 'appName', 'Pio XII Deportes'
+        buildConfigField 'String', 'SUPABASE_URL', groovy.json.JsonOutput.toJson(supabaseUrl)
+        buildConfigField 'String', 'SUPABASE_ANON_KEY', groovy.json.JsonOutput.toJson(supabaseAnonKey)
+    }
+
+    signingConfigs {
+        if (hasReleaseSigningCredentials) {
+            release {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseSigningCredentials) {
+                signingConfig signingConfigs.release
+            }
+            minifyEnabled true
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
+gradle.taskGraph.whenReady { taskGraph ->
+    def buildingRelease = taskGraph.allTasks.any {
+        it.name in ['assembleRelease', 'bundleRelease']
+    }
+    if (buildingRelease && !hasReleaseSigningCredentials) {
+        throw new GradleException(
+            'Release signing credentials are missing. Create app/keystore.properties from ' +
+            'app/keystore.properties.example and enter the existing keystore passwords.'
+        )
+    }
+}
